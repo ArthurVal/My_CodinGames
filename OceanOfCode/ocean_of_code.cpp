@@ -3,8 +3,8 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <tuple>    // std::tie
 #include <utility>  // pair
-#include <tuple>  // std::tie
 #include <vector>
 
 #include <algorithm>
@@ -13,7 +13,6 @@
  * Auto-generated code below aims at helping you parse
  * the standard input according to the problem statement.
  **/
-
 
 typedef int player_id_t;
 
@@ -32,7 +31,6 @@ inline std::string horizontalBar(const std::size_t &length) noexcept {
 }  // namespace ascii
 }  // namespace utils
 
-
 ///////////////////////////////////////////////////////////////////////////////
 //                                SUBMARINE                                  //
 ///////////////////////////////////////////////////////////////////////////////
@@ -45,7 +43,11 @@ struct Position {
 
 struct Player {
   Position pos;
-  // TODO
+  int hp;
+  int torpedo_cd;
+  int sonar_cd;
+  int silence_cd;
+  int mine_cd;
 };
 
 // TODO
@@ -117,7 +119,6 @@ std::ostream &operator<<(std::ostream &output, const map_t &map) {
 
 inline std::tuple<ocean::map_t, player_id_t> initialize() {
   std::cerr << "-- Initializing --" << std::endl;
-
   int width;
   int height;
   player_id_t my_id;
@@ -130,6 +131,7 @@ inline std::tuple<ocean::map_t, player_id_t> initialize() {
             << ", width=" << width << ", my_id=" << my_id << std::endl;
 
   ocean.reserve(height);
+
   for (int i = 0; i < height; i++) {
     std::string line_str;
     ocean::line_t horizontal_ocean_line;
@@ -140,8 +142,9 @@ inline std::tuple<ocean::map_t, player_id_t> initialize() {
     horizontal_ocean_line.reserve(line_str.size());
     for (const auto &init_tile : line_str)
       horizontal_ocean_line.push_back(
-        (init_tile == '.') ? ocean::Tile::empty
-        : (init_tile == 'x') ? ocean::Tile::isle : ocean::Tile::unknow);
+          (init_tile == '.')
+              ? ocean::Tile::empty
+              : (init_tile == 'x') ? ocean::Tile::isle : ocean::Tile::unknow);
 
     std::cerr << "Adding new horizontal line of "
               << horizontal_ocean_line.size() << " tiles" << std::endl;
@@ -153,42 +156,37 @@ inline std::tuple<ocean::map_t, player_id_t> initialize() {
 }
 
 int main() {
-  // [y][x] -> Horizontal line
-  ocean::map_t ocean;
   player_id_t my_id;
+  ocean::map_t ocean;
+  submarine::Player me;
+  submarine::Player enemy;
 
   std::tie(ocean, my_id) = initialize();
 
-
-
   // Write an action using std::cout. DON'T FORGET THE "<< std::endl"
   // To debug: cerr << "Debug messages..." << std::endl;
-  std::cout << "7 7" << std::endl;
-  ocean[7][7] = ocean::Tile::me;
 
-  std::cerr << ocean << std::endl;
+  std::cout << "7 7" << std::endl;
 
   // game loop
   while (1) {
-    int x;
-    int y;
-    int myLife;
-    int oppLife;
-    int torpedoCooldown;
-    int sonarCooldown;
-    int silenceCooldown;
-    int mineCooldown;
-    std::cin >> x >> y >> myLife >> oppLife >> torpedoCooldown >>
-        sonarCooldown >> silenceCooldown >> mineCooldown;
+    std::cin >> me.pos.x >> me.pos.y >> me.hp >> enemy.hp >> me.torpedo_cd >>
+        me.sonar_cd >> me.silence_cd >> me.mine_cd;
     std::cin.ignore();
+
     std::string sonarResult;
     std::cin >> sonarResult;
     std::cin.ignore();
+    std::cerr << "sonar = " << sonarResult << std::endl;
+
     std::string opponentOrders;
     getline(std::cin, opponentOrders);
+    std::cerr << "Opp = " << opponentOrders << std::endl;
 
     // Write an action using std::cout. DON'T FORGET THE "<< std::endl"
     // To debug: cerr << "Debug messages..." << std::endl;
+    ocean[me.pos.y][me.pos.x] = ocean::Tile::me;
+    std::cerr << ocean << std::endl;
 
     std::cout << "MOVE N TORPEDO" << std::endl;
   }
