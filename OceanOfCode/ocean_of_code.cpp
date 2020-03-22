@@ -63,6 +63,8 @@ namespace ocean {
 #define OCEAN_TILE_ISLE 0b000001
 #define OCEAN_TILE_VISITED 0b000010
 
+#define OCEAN_NEIGHS_MASK 0b111100
+
 #define OCEAN_N_TILE_POSI 2
 #define OCEAN_N_TILE_MASK 0b000100
 
