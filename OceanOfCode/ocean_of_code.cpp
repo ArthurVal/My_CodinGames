@@ -58,9 +58,22 @@ struct Player {
 namespace ocean {
 
 // OCEAN TYPES ////////////////////////////////////////////////////////////////
-#define OCEAN_TILE_FREE 0b00
-#define OCEAN_TILE_ISLE 0b01
-#define OCEAN_TILE_VISITED 0b10
+#define OCEAN_TILE_MASK 0b000011
+#define OCEAN_TILE_FREE 0b000000
+#define OCEAN_TILE_ISLE 0b000001
+#define OCEAN_TILE_VISITED 0b000010
+
+#define OCEAN_N_TILE_POSI 2
+#define OCEAN_N_TILE_MASK 0b000100
+
+#define OCEAN_S_TILE_POSI 3
+#define OCEAN_S_TILE_MASK 0b001000
+
+#define OCEAN_E_TILE_POSI 4
+#define OCEAN_E_TILE_MASK 0b010000
+
+#define OCEAN_W_TILE_POSI 5
+#define OCEAN_W_TILE_MASK 0b100000
 
 typedef std::uint32_t cell_t;
 typedef std::vector<cell_t> line_t;
@@ -68,10 +81,13 @@ typedef std::vector<line_t> map_t;
 
 // OCEAN STR FORMAT ///////////////////////////////////////////////////////////
 inline const std::string draw(const cell_t &cell) noexcept {
-
-  switch (cell) {
+  switch (cell & OCEAN_TILE_MASK) {
     case OCEAN_TILE_FREE:
-      return std::string(" ");
+      if (cell & OCEAN_W_TILE_MASK) return std::string("W");
+      else if (cell & OCEAN_E_TILE_MASK) return std::string("E");
+      else if (cell & OCEAN_N_TILE_MASK) return std::string("N");
+      else if (cell & OCEAN_S_TILE_MASK) return std::string("S");
+      else return std::string(" ");
     case OCEAN_TILE_VISITED:
       return std::string("O");
     case OCEAN_TILE_ISLE:
@@ -135,9 +151,46 @@ inline std::pair<ocean::map_t, player_id_t> initialize() {
     std::cerr << "Ocean Line " << i << " received: " << line_str << std::endl;
 
     horizontal_ocean_line.reserve(line_str.size());
-    for (const auto &init_tile : line_str)
-      horizontal_ocean_line.push_back((init_tile == '.') ? OCEAN_TILE_FREE
-                                                         : OCEAN_TILE_ISLE);
+    for (const auto &init_tile : line_str) {
+      // Add 1 Tile based on the character
+      ocean::cell_t new_cell((init_tile == 'x') ? OCEAN_TILE_ISLE
+                                                : OCEAN_TILE_FREE);
+
+      // FIXME: Lot of if, ... I'm not proud maybe make it more beautiful ?
+      if (ocean.size() == 0)  // First line -> Mark North as occupied
+        new_cell |= OCEAN_N_TILE_MASK;
+      else if (ocean.size() == (height - 1))  // Last line -> South occupied
+        new_cell |= OCEAN_S_TILE_MASK;
+      else  // Middle
+      {
+        // We check and update the neighbor above
+        ocean::cell_t &neigh_above = ocean.back()[horizontal_ocean_line.size()];
+
+        // Update the cell above with cell below
+        neigh_above |= ((new_cell & OCEAN_TILE_ISLE) << OCEAN_S_TILE_POSI);
+
+        // Update the new cell with above infos
+        new_cell |= (neigh_above & OCEAN_TILE_ISLE) << OCEAN_N_TILE_POSI;
+      }
+
+      if (horizontal_ocean_line.size() == 0)  // First cell of row -> West Occ
+        new_cell |= OCEAN_W_TILE_MASK;
+      else  // We check and update the neighbor on the left
+      {
+        ocean::cell_t &neigh_left = horizontal_ocean_line.back();
+
+        // Update the cell on the left with right cell infos
+        neigh_left |= ((new_cell & OCEAN_TILE_ISLE) << OCEAN_E_TILE_POSI);
+
+        // Update the new cell with left info
+        new_cell |= (neigh_left & OCEAN_TILE_ISLE) << OCEAN_W_TILE_POSI;
+      }
+
+      horizontal_ocean_line.push_back(std::move(new_cell));
+    }
+
+    // Last element of single row: East Occupied
+    horizontal_ocean_line.back() |= OCEAN_E_TILE_MASK;
 
     std::cerr << "Adding new horizontal line of "
               << horizontal_ocean_line.size() << " tiles" << std::endl;
@@ -158,8 +211,25 @@ int main() {
 
   // Write an action using std::cout. DON'T FORGET THE "<< std::endl"
   // To debug: cerr << "Debug messages..." << std::endl;
+  me.pos.x = me.pos.y = 0;
 
-  std::cout << "7 7" << std::endl;
+  // Init pos
+  {
+    bool found = false;
+    for (const auto &line : ocean) {
+      for (const auto &cell : line)
+        if ((cell & OCEAN_TILE_MASK) == OCEAN_TILE_FREE) {
+          found = true;
+          break;
+        } else
+          ++me.pos.x;
+
+      if (found) break;
+      ++me.pos.y;
+    }
+  }
+
+  std::cout << me.pos.x << " " << me.pos.x << std::endl;
 
   // game loop
   while (1) {
@@ -181,6 +251,6 @@ int main() {
     ocean[me.pos.y][me.pos.x] |= OCEAN_TILE_VISITED;
     std::cerr << ocean::draw(ocean) << std::endl;
 
-    std::cout << "MOVE N TORPEDO" << std::endl;
+    std::cout << "MOVE S TORPEDO" << std::endl;
   }
 }
