@@ -83,11 +83,12 @@ typedef std::vector<line_t> map_t;
 inline const std::string draw(const cell_t &cell) noexcept {
   switch (cell & OCEAN_TILE_MASK) {
     case OCEAN_TILE_FREE:
-      if (cell & OCEAN_W_TILE_MASK) return std::string("W");
-      else if (cell & OCEAN_E_TILE_MASK) return std::string("E");
-      else if (cell & OCEAN_N_TILE_MASK) return std::string("N");
-      else if (cell & OCEAN_S_TILE_MASK) return std::string("S");
-      else return std::string(" ");
+      // if (cell & OCEAN_W_TILE_MASK) return std::string("W");
+      // else if (cell & OCEAN_E_TILE_MASK) return std::string("E");
+      // else if (cell & OCEAN_N_TILE_MASK) return std::string("N");
+      // else if (cell & OCEAN_S_TILE_MASK) return std::string("S");
+      // else return std::string(" ");
+      return std::string(" ");
     case OCEAN_TILE_VISITED:
       return std::string("O");
     case OCEAN_TILE_ISLE:
