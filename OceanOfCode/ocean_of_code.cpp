@@ -1,5 +1,6 @@
 #include <cstdlib>  // size_t
 
+#include <cstdint>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -49,9 +50,6 @@ struct Player {
   int silence_cd;
   int mine_cd;
 };
-
-// TODO
-
 }  // namespace submarine
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -60,30 +58,24 @@ struct Player {
 namespace ocean {
 
 // OCEAN TYPES ////////////////////////////////////////////////////////////////
-enum Tile {
-  unknow = 0b0000,
-  empty = 0b0001,
-  isle = 0b0010,
-  me = 0b0100,
-  enemy = 0b1000,
-};
+#define OCEAN_TILE_FREE 0b00
+#define OCEAN_TILE_ISLE 0b01
+#define OCEAN_TILE_VISITED 0b10
 
-typedef Tile cell_t;
+typedef std::uint32_t cell_t;
 typedef std::vector<cell_t> line_t;
 typedef std::vector<line_t> map_t;
 
 // OCEAN STR FORMAT ///////////////////////////////////////////////////////////
 inline const std::string draw(const cell_t &cell) noexcept {
+
   switch (cell) {
-    case Tile::empty:
+    case OCEAN_TILE_FREE:
       return std::string(" ");
-    case Tile::isle:
-      return std::string("X");
-    case Tile::me:
+    case OCEAN_TILE_VISITED:
       return std::string("O");
-    case Tile::enemy:
-      return std::string("@");
-    case Tile::unknow:
+    case OCEAN_TILE_ISLE:
+      return std::string("X");
     default:
       return std::string("?");
   }
@@ -113,11 +105,14 @@ std::ostream &operator<<(std::ostream &output, const map_t &map) {
 };
 
 // OCEAN FUNCTIONS ////////////////////////////////////////////////////////////
-// TODO
+void clean(map_t &map) {
+  for (auto &line : map)
+    for (auto &cell : line) cell &= ~OCEAN_TILE_VISITED;
+}
 
 }  // namespace ocean
 
-inline std::tuple<ocean::map_t, player_id_t> initialize() {
+inline std::pair<ocean::map_t, player_id_t> initialize() {
   std::cerr << "-- Initializing --" << std::endl;
   int width;
   int height;
@@ -141,10 +136,8 @@ inline std::tuple<ocean::map_t, player_id_t> initialize() {
 
     horizontal_ocean_line.reserve(line_str.size());
     for (const auto &init_tile : line_str)
-      horizontal_ocean_line.push_back(
-          (init_tile == '.')
-              ? ocean::Tile::empty
-              : (init_tile == 'x') ? ocean::Tile::isle : ocean::Tile::unknow);
+      horizontal_ocean_line.push_back((init_tile == '.') ? OCEAN_TILE_FREE
+                                                         : OCEAN_TILE_ISLE);
 
     std::cerr << "Adding new horizontal line of "
               << horizontal_ocean_line.size() << " tiles" << std::endl;
@@ -185,8 +178,8 @@ int main() {
 
     // Write an action using std::cout. DON'T FORGET THE "<< std::endl"
     // To debug: cerr << "Debug messages..." << std::endl;
-    ocean[me.pos.y][me.pos.x] = ocean::Tile::me;
-    std::cerr << ocean << std::endl;
+    ocean[me.pos.y][me.pos.x] |= OCEAN_TILE_VISITED;
+    std::cerr << ocean::draw(ocean) << std::endl;
 
     std::cout << "MOVE N TORPEDO" << std::endl;
   }
