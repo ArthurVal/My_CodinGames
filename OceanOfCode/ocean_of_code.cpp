@@ -40,35 +40,35 @@ inline std::string horizontalBar(const std::size_t &length) noexcept {
 namespace ocean {
 
 // OCEAN TYPES ////////////////////////////////////////////////////////////////
-#define OCEAN_TILE_MASK 0b000011
-#define OCEAN_TILE_FREE 0b000000
-#define OCEAN_TILE_ISLE 0b000001
-#define OCEAN_TILE_VISITED 0b000010
+#define OCEAN_TILE_MASK 0b0000011
+#define OCEAN_TILE_FREE 0b0000001
+#define OCEAN_TILE_ISLE 0b0000010
+
+#define OCEAN_TILE_PLAYER_MASK 0b0001100
+#define OCEAN_TILE_VISITED 0b0000100
+#define OCEAN_TILE_TARGET 0b0001000
 
 typedef std::uint32_t cell_t;
 typedef std::vector<cell_t> line_t;
 typedef std::vector<line_t> map_t;
 
 struct Position {
-  std::size_t x, y;
+  int x, y;
 };
 typedef std::vector<Position> path_t;
 typedef std::list<path_t> path_list_t;
 
 // OCEAN STR FORMAT ///////////////////////////////////////////////////////////
 inline const std::string draw(const cell_t &cell) noexcept {
-  switch (cell & OCEAN_TILE_MASK) {
+  switch (cell) {
     case OCEAN_TILE_FREE:
-      // if (cell & OCEAN_W_TILE_MASK) return std::string("W");
-      // else if (cell & OCEAN_E_TILE_MASK) return std::string("E");
-      // else if (cell & OCEAN_N_TILE_MASK) return std::string("N");
-      // else if (cell & OCEAN_S_TILE_MASK) return std::string("S");
-      // else return std::string(" ");
       return std::string(" ");
-    case OCEAN_TILE_VISITED:
+    case OCEAN_TILE_FREE | OCEAN_TILE_VISITED:
       return std::string("O");
     case OCEAN_TILE_ISLE:
       return std::string("X");
+    case OCEAN_TILE_FREE | OCEAN_TILE_TARGET:
+      return std::string("T");
     default:
       return std::string("?");
   }
@@ -193,6 +193,48 @@ move::Power from_string<move::Power>(const std::string &powa_str) {
 }  // namespace str
 
 }  // namespace action
+
+void updateEnemyLocationFromMove(const ocean::map_t &ocean,
+                                 const action::move::Direction &enemy_dir,
+                                 ocean::path_list_t &enemy_possible_path_list) {
+  ocean::Position position_increment = {.x = 0, .y = 0};
+  switch (enemy_dir) {
+    case action::move::Direction::North:
+      position_increment.y = -1;
+      break;
+    case action::move::Direction::South:
+      position_increment.y = 1;
+      break;
+    case action::move::Direction::East:
+      position_increment.x = 1;
+      break;
+    case action::move::Direction::West:
+      position_increment.x = -1;
+      break;
+  };
+  for (auto enemy_possible_path = enemy_possible_path_list.begin();
+       enemy_possible_path != enemy_possible_path_list.end();) {
+    // Retreive last position
+    // Update it with the movement orders
+    ocean::Position new_position{
+      .x = enemy_possible_path->back().x + position_increment.x,
+      .y = enemy_possible_path->back().y + position_increment.y
+    };
+
+    // Check map boundaries and isles
+    if (new_position.y < 0 || new_position.y >= ocean.size() ||
+        new_position.x < 0 || new_position.x >= ocean[new_position.y].size() ||
+        ocean[new_position.y][new_position.x] & OCEAN_TILE_ISLE) {
+      // either out of bound OR isles -> delete the path
+      enemy_possible_path = enemy_possible_path_list.erase(enemy_possible_path);
+    } else {
+      // Still in water -> add new position to path
+      enemy_possible_path->push_back(std::move(new_position));
+      ++enemy_possible_path;
+    }
+  };
+};
+
 }  // namespace submarine
 
 inline std::pair<ocean::map_t, player_id_t> initialize() {
@@ -236,8 +278,18 @@ int main() {
   ocean::map_t ocean;
   submarine::Player me;
   submarine::Player enemy;
+  ocean::path_list_t enemy_possible_path_list;
 
   std::tie(ocean, my_id) = initialize();
+
+  for (std::size_t y = 0; y < ocean.size(); ++y)
+    for (std::size_t x = 0; x < ocean[y].size(); ++x)
+      if (ocean[y][x] & OCEAN_TILE_FREE)
+        enemy_possible_path_list.emplace_back(1,
+                                              ocean::Position{.x = x, .y = y});
+
+  std::cerr << enemy_possible_path_list.size() << " Possible enemy paths"
+            << std::endl;
 
   // Write an action using std::cout. DON'T FORGET THE "<< std::endl"
   // To debug: cerr << "Debug messages..." << std::endl;
@@ -276,10 +328,35 @@ int main() {
     getline(std::cin, opponentOrders);
     std::cerr << "Opp = " << opponentOrders << std::endl;
 
+    // FIXME: THIS IS TMP, JUST FOR TESTS
+    auto move_idx = opponentOrders.find("MOVE");
+    if (move_idx != std::string::npos) {
+      // Opp moved
+      submarine::updateEnemyLocationFromMove(
+          ocean,
+          static_cast<submarine::action::move::Direction>(
+              opponentOrders[move_idx + 5]),
+          enemy_possible_path_list);
+
+      std::cerr << enemy_possible_path_list.size() << " Possible enemy path"
+                << std::endl;
+    }
+
+    // FIXME: THIS IS TMP, JUST FOR TESTS
+
     // Write an action using std::cout. DON'T FORGET THE "<< std::endl"
     // To debug: cerr << "Debug messages..." << std::endl;
     ocean[me.pos.y][me.pos.x] |= OCEAN_TILE_VISITED;
+
+    for (const auto &possible_path : enemy_possible_path_list)
+      ocean[possible_path.back().y][possible_path.back().x] |=
+          OCEAN_TILE_TARGET;
+
     std::cerr << ocean::draw(ocean) << std::endl;
+
+    for (const auto &possible_path : enemy_possible_path_list)
+      ocean[possible_path.back().y][possible_path.back().x] &=
+          ~OCEAN_TILE_TARGET;
 
     std::cout << "MOVE S TORPEDO" << std::endl;
   }
