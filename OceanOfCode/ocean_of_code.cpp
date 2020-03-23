@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <list>
 #include <sstream>
 #include <string>
 #include <tuple>    // std::tie
@@ -23,6 +24,7 @@ typedef int player_id_t;
 
 namespace utils {
 namespace ascii {
+
 inline std::string horizontalBar(const std::size_t &length) noexcept {
   std::stringstream ss;
   for (auto i = 0; i < length; ++i) ss << "-";
@@ -31,26 +33,6 @@ inline std::string horizontalBar(const std::size_t &length) noexcept {
 
 }  // namespace ascii
 }  // namespace utils
-
-///////////////////////////////////////////////////////////////////////////////
-//                                SUBMARINE                                  //
-///////////////////////////////////////////////////////////////////////////////
-namespace submarine {
-
-// PLAYER TYPES ///////////////////////////////////////////////////////////////
-struct Position {
-  std::size_t x, y;
-};
-
-struct Player {
-  Position pos;
-  int hp;
-  int torpedo_cd;
-  int sonar_cd;
-  int silence_cd;
-  int mine_cd;
-};
-}  // namespace submarine
 
 ///////////////////////////////////////////////////////////////////////////////
 //                                   OCEAN                                   //
@@ -63,23 +45,15 @@ namespace ocean {
 #define OCEAN_TILE_ISLE 0b000001
 #define OCEAN_TILE_VISITED 0b000010
 
-#define OCEAN_NEIGHS_MASK 0b111100
-
-#define OCEAN_N_TILE_POSI 2
-#define OCEAN_N_TILE_MASK 0b000100
-
-#define OCEAN_S_TILE_POSI 3
-#define OCEAN_S_TILE_MASK 0b001000
-
-#define OCEAN_E_TILE_POSI 4
-#define OCEAN_E_TILE_MASK 0b010000
-
-#define OCEAN_W_TILE_POSI 5
-#define OCEAN_W_TILE_MASK 0b100000
-
 typedef std::uint32_t cell_t;
 typedef std::vector<cell_t> line_t;
 typedef std::vector<line_t> map_t;
+
+struct Position {
+  std::size_t x, y;
+};
+typedef std::vector<Position> path_t;
+typedef std::list<path_t> path_list_t;
 
 // OCEAN STR FORMAT ///////////////////////////////////////////////////////////
 inline const std::string draw(const cell_t &cell) noexcept {
@@ -124,12 +98,102 @@ std::ostream &operator<<(std::ostream &output, const map_t &map) {
 };
 
 // OCEAN FUNCTIONS ////////////////////////////////////////////////////////////
-void clean(map_t &map) {
+void clean(map_t &map, const cell_t &mask) {
   for (auto &line : map)
-    for (auto &cell : line) cell &= ~OCEAN_TILE_VISITED;
+    for (auto &cell : line) cell &= ~mask;
 }
 
 }  // namespace ocean
+
+///////////////////////////////////////////////////////////////////////////////
+//                                SUBMARINE                                  //
+///////////////////////////////////////////////////////////////////////////////
+namespace submarine {
+
+// PLAYER TYPES ///////////////////////////////////////////////////////////////
+
+struct Player {
+  ocean::Position pos;
+  int hp;
+  int torpedo_cd;
+  int sonar_cd;
+  int silence_cd;
+  int mine_cd;
+};
+
+namespace action {
+
+enum Type { movement, torpedo, surface, msg };
+
+namespace move {
+enum Direction : char { North = 'N', South = 'S', East = 'E', West = 'W' };
+
+enum Power {
+  none,
+  torpedo,
+};
+}  // namespace move
+
+namespace str {
+
+std::string to_string(const Type &action) {
+  switch (action) {
+    case Type::movement:
+      return std::string("MOVE");
+    case Type::torpedo:
+      return std::string("TORPEDO");
+    case Type::surface:
+      return std::string("SURFACE");
+    case Type::msg:
+      return std::string("MSG");
+    default:
+      return std::string("");
+  };
+};
+
+std::string to_string(const move::Power &powa) {
+  switch (powa) {
+    case move::Power::torpedo:
+      return std::string("TORPEDO");
+    case move::Power::none:
+    default:
+      return std::string("");
+  };
+};
+
+template <typename T>
+T from_string(const std::string &str) {
+  return T();
+};
+
+template <>
+Type from_string<Type>(const std::string &action_str) {
+  switch (action_str.length()) {
+    case 3:
+      return Type::msg;
+    case 4:
+      return Type::movement;
+    case 7:
+      return (action_str[0] == 'T') ? Type::torpedo : Type::surface;
+    default:
+      return Type::msg;
+  };
+};
+
+template <>
+move::Power from_string<move::Power>(const std::string &powa_str) {
+  switch (powa_str.length()) {
+    case 7:
+      return move::Power::torpedo;
+    default:
+      return move::Power::none;
+  };
+};
+
+}  // namespace str
+
+}  // namespace action
+}  // namespace submarine
 
 inline std::pair<ocean::map_t, player_id_t> initialize() {
   std::cerr << "-- Initializing --" << std::endl;
@@ -154,46 +218,9 @@ inline std::pair<ocean::map_t, player_id_t> initialize() {
     std::cerr << "Ocean Line " << i << " received: " << line_str << std::endl;
 
     horizontal_ocean_line.reserve(line_str.size());
-    for (const auto &init_tile : line_str) {
-      // Add 1 Tile based on the character
-      ocean::cell_t new_cell((init_tile == 'x') ? OCEAN_TILE_ISLE
-                                                : OCEAN_TILE_FREE);
-
-      // FIXME: Lot of if, ... I'm not proud maybe make it more beautiful ?
-      if (ocean.size() == 0)  // First line -> Mark North as occupied
-        new_cell |= OCEAN_N_TILE_MASK;
-      else if (ocean.size() == (height - 1))  // Last line -> South occupied
-        new_cell |= OCEAN_S_TILE_MASK;
-      else  // Middle
-      {
-        // We check and update the neighbor above
-        ocean::cell_t &neigh_above = ocean.back()[horizontal_ocean_line.size()];
-
-        // Update the cell above with cell below
-        neigh_above |= ((new_cell & OCEAN_TILE_ISLE) << OCEAN_S_TILE_POSI);
-
-        // Update the new cell with above infos
-        new_cell |= (neigh_above & OCEAN_TILE_ISLE) << OCEAN_N_TILE_POSI;
-      }
-
-      if (horizontal_ocean_line.size() == 0)  // First cell of row -> West Occ
-        new_cell |= OCEAN_W_TILE_MASK;
-      else  // We check and update the neighbor on the left
-      {
-        ocean::cell_t &neigh_left = horizontal_ocean_line.back();
-
-        // Update the cell on the left with right cell infos
-        neigh_left |= ((new_cell & OCEAN_TILE_ISLE) << OCEAN_E_TILE_POSI);
-
-        // Update the new cell with left info
-        new_cell |= (neigh_left & OCEAN_TILE_ISLE) << OCEAN_W_TILE_POSI;
-      }
-
-      horizontal_ocean_line.push_back(std::move(new_cell));
-    }
-
-    // Last element of single row: East Occupied
-    horizontal_ocean_line.back() |= OCEAN_E_TILE_MASK;
+    for (const auto &init_tile : line_str)
+      horizontal_ocean_line.emplace_back((init_tile == 'x') ? OCEAN_TILE_ISLE
+                                                            : OCEAN_TILE_FREE);
 
     std::cerr << "Adding new horizontal line of "
               << horizontal_ocean_line.size() << " tiles" << std::endl;
