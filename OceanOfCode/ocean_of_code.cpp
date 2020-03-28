@@ -51,23 +51,10 @@ namespace ocean {
 
 typedef std::uint32_t cell_t;
 std::string draw(const cell_t &cell) {
-  switch (cell) {
-    case OCEAN_TILE_FREE:
-      return std::string(" ");
-      break;
-    case OCEAN_TILE_FREE | OCEAN_TILE_VISITED:
-      return std::string("O");
-      break;
-    case OCEAN_TILE_ISLE:
-      return std::string("X");
-      break;
-    case OCEAN_TILE_FREE | OCEAN_TILE_TARGET:
-      return std::string("T");
-      break;
-    default:
-      return std::string("?");
-      break;
-  }
+  if (cell & OCEAN_TILE_ISLE) return std::string("X");
+  if (cell & OCEAN_TILE_TARGET) return std::string("T");
+  if (cell & OCEAN_TILE_VISITED) return std::string("O");
+  return std::string(" ");
 };
 
 typedef std::vector<cell_t> line_t;
@@ -151,50 +138,7 @@ typedef std::tuple<std::optional<move_t>,    // Move
                    >
     action_t;
 
-namespace parse {
-
-action_t enemyActions(std::string enemy_orders) {
-  std::stringstream enemy_orders_stream(enemy_orders);
-  std::string single_order;
-
-  std::optional<move_t> move_action;
-  std::optional<Position> torpedo_action;
-  std::optional<sector_t> surface_action;
-
-  std::cerr << "Parsing orders: " << enemy_orders_stream.str() << std::endl;
-
-  while (getline(enemy_orders_stream, single_order, '|')) {
-    std::stringstream single_order_stream(single_order);
-    std::string action_word;
-
-    std::cerr << "New order: " << single_order << std::endl;
-
-    single_order_stream >> action_word;
-    std::cerr << "Action: " << action_word << std::endl;
-
-    switch (action_word.front()) {
-      case 'M':
-        if (action_word[1] == 'O') {
-          std::cerr << "Adding new movement" << std::endl;
-          move_action = moveStr(single_order_stream);
-        }
-        break;
-
-      case 'T':
-        std::cerr << "Adding new torpedo" << std::endl;
-        torpedo_action = torpedoStr(single_order_stream);
-        break;
-
-      case 'S':
-        std::cerr << "Adding new surface" << std::endl;
-        surface_action = surfaceStr(single_order_stream);
-        break;
-    };
-  }
-  return std::make_tuple(move_action, torpedo_action, surface_action);
-}
-
-}  // namespace parse
+namespace parse {}  // namespace parse
 
 }  // namespace action
 
@@ -294,8 +238,7 @@ void updatePositionFromMove(const char &move, Position &position) {
 
 void updatePositionPredictionFromMove(path_list_t &path_prediction_list,
                                       const map_t &ocean, const move_t &move) {
-  std::cerr << "Update position pred from move dir " << move.first
-            << std::endl;
+  std::cerr << "Update position pred from move dir " << move.first << std::endl;
   Position position_increment = {.x = 0, .y = 0};
   updatePositionFromMove(move.first, position_increment);
 
@@ -358,24 +301,43 @@ void updatePositionPredictionFromTorpedo(path_list_t &path_prediction_list,
 };
 
 void updatePositionPrediction(path_list_t &path_prediction_list,
-                              const map_t &ocean, const action_t &actions) {
-  std::optional<move_t> move_action;
-  std::optional<Position> torpedo_action;
-  std::optional<sector_t> surface_action;
+                              const map_t &ocean,
+                              const std::string &enemy_orders) {
+  std::stringstream enemy_orders_stream(enemy_orders);
+  std::string single_order;
 
-  std::tie(move_action, torpedo_action, surface_action) = actions;
+  std::cerr << "Parsing orders: " << enemy_orders_stream.str() << std::endl;
 
-  if (move_action)
-    updatePositionPredictionFromMove(path_prediction_list, ocean,
-                                     move_action.value());
+  while (getline(enemy_orders_stream, single_order, '|')) {
+    std::stringstream single_order_stream(single_order);
+    std::string action_word;
 
-  if (torpedo_action)
-    updatePositionPredictionFromTorpedo(path_prediction_list, ocean,
-                                        torpedo_action.value());
+    std::cerr << "New order: " << single_order << std::endl;
 
-  if (surface_action)
-    updatePositionPredictionFromSurface(path_prediction_list, ocean,
-                                        surface_action.value());
+    single_order_stream >> action_word;
+    std::cerr << "Action: " << action_word << std::endl;
+
+    switch (action_word.front()) {
+      case 'M':
+        if (action_word[1] == 'O') {
+          updatePositionPredictionFromMove(path_prediction_list, ocean,
+                                           parse::moveStr(single_order_stream));
+        }
+        break;
+
+      case 'T':
+        updatePositionPredictionFromTorpedo(
+            path_prediction_list, ocean,
+            parse::torpedoStr(single_order_stream));
+        break;
+
+      case 'S':
+        updatePositionPredictionFromSurface(
+            path_prediction_list, ocean,
+            parse::surfaceStr(single_order_stream));
+        break;
+    };
+  }
 }
 
 }  // namespace action
@@ -409,9 +371,9 @@ inline std::tuple<ocean::map_t, ocean::path_list_t, player_id_t> initialize() {
       if (init_tile == 'x') {
         horizontal_ocean_line.emplace_back(OCEAN_TILE_ISLE);
       } else {
-        horizontal_ocean_line.emplace_back(OCEAN_TILE_FREE);
         free_pos.emplace_back(
-            1, ocean::Position{.x = horizontal_ocean_line.size(), .y = i});
+          1, ocean::Position{.x = horizontal_ocean_line.size(), .y = i});
+        horizontal_ocean_line.emplace_back(OCEAN_TILE_FREE);
       }
 
     std::cerr << "Adding new horizontal line of "
@@ -479,9 +441,8 @@ int main() {
     std::string enemy_orders;
     getline(std::cin, enemy_orders);
     if (enemy_orders != "NA")
-      ocean::action::updatePositionPrediction(
-          enemy_prediction_path_list, ocean,
-          ocean::action::parse::enemyActions(enemy_orders));
+      ocean::action::updatePositionPrediction(enemy_prediction_path_list, ocean,
+                                              enemy_orders);
 
     // FIXME: THIS IS TMP, JUST FOR TESTS
 
