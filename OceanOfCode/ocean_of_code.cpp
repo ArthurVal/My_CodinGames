@@ -10,6 +10,14 @@
 #include <utility>  // pair
 #include <vector>
 
+// This is for my A*
+#include <deque>
+#include <functional>
+#include <limits>
+#include <queue>
+#include <unordered_map>
+#include <unordered_set>
+
 /**
  * Auto-generated code below aims at helping you parse
  * the standard input according to the problem statement.
@@ -18,9 +26,26 @@
 ///////////////////////////////////////////////////////////////////////////////
 //                                   UTILS                                   //
 ///////////////////////////////////////////////////////////////////////////////
-namespace utils {
-namespace ascii {
 
+namespace utils {
+
+struct ocean_pair_hash {
+  template <typename T, typename U>
+  std::size_t operator()(const std::pair<T, U> &x) const {
+    std::size_t linear_coord = x.first + x.second * (15 * 15);
+    return std::hash<std::size_t>()(linear_coord);
+  };
+};
+
+struct ocean_pair_equals {
+  template <typename T, typename U>
+  bool operator()(const std::pair<T, U> &lhs,
+                  const std::pair<T, U> &rhs) const {
+    return (lhs.first == rhs.first) && (lhs.second == rhs.second);
+  };
+};
+
+namespace ascii {
 inline std::string horizontalBar(const std::size_t &length) noexcept {
   std::stringstream ss;
   for (auto i = 0; i < length; ++i) ss << "-";
@@ -28,6 +53,121 @@ inline std::string horizontalBar(const std::size_t &length) noexcept {
 };
 
 }  // namespace ascii
+
+namespace path {
+
+/**
+ * @brief      Function use to compute the shortest path with A* research Algo
+ * @tparam     MapContainerType
+ * @tparam     PositionCoordinatesType
+ * @param      param
+ * @return     return type
+ */
+template <class PositionCoordinatesType, class HeuristicScore,
+          class PositionEqual = std::equal_to<PositionCoordinatesType>,
+          class Hash = std::hash<PositionCoordinatesType>>
+std::deque<PositionCoordinatesType> aStarShortestPath(
+    const PositionCoordinatesType &from_position,
+    const PositionCoordinatesType &to_position,
+    std::function<HeuristicScore(const PositionCoordinatesType &)>
+        computeHeuristic,
+    std::function<
+        std::vector<std::pair<PositionCoordinatesType, HeuristicScore>>(
+            const PositionCoordinatesType &)>
+        getNeighborWeightedPositions) {
+  auto position_are_equals = PositionEqual();
+
+  typedef std::pair<PositionCoordinatesType, HeuristicScore> node_t;
+
+  auto compare_f_score = [](const node_t &lhs, const node_t &rhs) {
+    return lhs.second > rhs.second;
+  };
+
+  typedef std::priority_queue<node_t, std::vector<node_t>,
+                              decltype(compare_f_score)>
+      node_heap_t;
+
+  typedef std::unordered_map<PositionCoordinatesType, HeuristicScore, Hash,
+                             PositionEqual>
+      score_map_t;
+
+  typedef std::unordered_map<PositionCoordinatesType, PositionCoordinatesType,
+                             Hash, PositionEqual>
+      path_map_t;
+
+  typedef std::unordered_set<PositionCoordinatesType, Hash, PositionEqual>
+      visited_pos_set_t;
+
+  std::deque<PositionCoordinatesType> output_path;
+  node_heap_t node_heap(compare_f_score);
+  visited_pos_set_t visited_position(0);
+  score_map_t g_score_map;
+  path_map_t came_from;
+
+  node_heap.emplace(from_position, computeHeuristic(from_position));
+  g_score_map.emplace(from_position, 0);
+
+  while (!node_heap.empty()) {
+    PositionCoordinatesType current_position;
+    HeuristicScore current_f_score;
+
+    std::tie(current_position, current_f_score) = node_heap.top();
+    node_heap.pop();
+
+    visited_position.insert(current_position);
+
+    if (position_are_equals(current_position, to_position)) {
+      // Found -> reconstruct path
+      output_path.push_back(current_position);
+      auto pos_it = came_from.find(current_position);
+      while (pos_it != came_from.end()) {
+        output_path.push_back(pos_it->second);
+        pos_it = came_from.find(pos_it->second);
+      }
+
+      break;
+
+    } else {
+      // explore
+      for (const auto &neighbour_info :
+           getNeighborWeightedPositions(current_position)) {
+        PositionCoordinatesType neighbour_position;
+        HeuristicScore neighbour_distance;
+
+        std::tie(neighbour_position, neighbour_distance) = neighbour_info;
+
+        // Compute the possible new score from this node to the neighbor
+        HeuristicScore new_g_score =
+            g_score_map[current_position] + neighbour_distance;
+
+        auto neighbour_g_score_it = g_score_map.find(neighbour_position);
+
+        // Get the neighbour g_score
+        if (neighbour_g_score_it == g_score_map.end())
+          std::tie(neighbour_g_score_it, std::ignore) = g_score_map.insert(
+              {neighbour_position,
+               std::numeric_limits<HeuristicScore>::infinity()});
+
+        if (new_g_score < neighbour_g_score_it->second) {
+          // Better g_score than neighbour
+          came_from[neighbour_position] = current_position;
+          g_score_map[neighbour_position] = new_g_score;
+
+          if (visited_position.find(neighbour_position) ==
+              visited_position.end()) {
+            node_heap.emplace(
+                neighbour_position,
+                new_g_score + computeHeuristic(neighbour_position));
+          }
+        }
+      }
+    }
+  }
+
+  return output_path;
+}
+
+}  // namespace path
 
 }  // namespace utils
 
@@ -169,6 +309,11 @@ std::ostream &operator<<(std::ostream &output, const ocean::Position &pos) {
   return output;
 };
 
+std::ostream &operator<<(std::ostream &output, const std::pair<int, int> &pos) {
+  output << pos.first << " " << pos.second;
+  return output;
+};
+
 // std::ostream &operator<<(std::ostream &output,
 //                          const ocean::action::action_t &actions) {
 //   for (const auto &action : actions) output << action << " |";
@@ -205,8 +350,8 @@ constexpr bool isPositionInsideSector(const Position &position,
          isYInsideSector(position.y, sector);
 };
 
-constexpr bool isPositionInsideOcean(const Position &position,
-                                     const map_t &ocean) {
+constexpr bool isPositionOutsideOcean(const Position &position,
+                                      const map_t &ocean) {
   return (position.y < 0 || position.y >= ocean.size() || position.x < 0 ||
           position.x >= ocean[position.y].size());
 };
@@ -236,6 +381,25 @@ void updatePositionFromMove(const char &move, Position &position) {
   };
 };
 
+Position getNewPositionFromMove(const char &move, const Position &position) {
+  Position new_pos = position;
+  switch (move) {
+    case 'N':
+      new_pos.y -= 1;
+      break;
+    case 'S':
+      new_pos.y += 1;
+      break;
+    case 'E':
+      new_pos.x += 1;
+      break;
+    case 'W':
+      new_pos.x -= 1;
+      break;
+  };
+  return new_pos;
+};
+
 void updatePositionPredictionFromMove(path_list_t &path_prediction_list,
                                       const map_t &ocean, const move_t &move) {
   std::cerr << "Update position pred from move dir " << move.first << std::endl;
@@ -250,7 +414,7 @@ void updatePositionPredictionFromMove(path_list_t &path_prediction_list,
                           .y = possible_path->back().y + position_increment.y};
 
     // Check map boundaries and isles
-    if (isPositionInsideOcean(new_position, ocean) ||
+    if (isPositionOutsideOcean(new_position, ocean) ||
         ocean[new_position.y][new_position.x] & OCEAN_TILE_ISLE) {
       // either out of bound OR isles -> delete the path
       possible_path = path_prediction_list.erase(possible_path);
@@ -332,9 +496,10 @@ void updatePositionPrediction(path_list_t &path_prediction_list,
         break;
 
       case 'S':
-        updatePositionPredictionFromSurface(
-            path_prediction_list, ocean,
-            parse::surfaceStr(single_order_stream));
+        if (action_word[1] == 'U')
+          updatePositionPredictionFromSurface(
+              path_prediction_list, ocean,
+              parse::surfaceStr(single_order_stream));
         break;
     };
   }
@@ -372,7 +537,7 @@ inline std::tuple<ocean::map_t, ocean::path_list_t, player_id_t> initialize() {
         horizontal_ocean_line.emplace_back(OCEAN_TILE_ISLE);
       } else {
         free_pos.emplace_back(
-          1, ocean::Position{.x = horizontal_ocean_line.size(), .y = i});
+            1, ocean::Position{.x = horizontal_ocean_line.size(), .y = i});
         horizontal_ocean_line.emplace_back(OCEAN_TILE_FREE);
       }
 
@@ -449,16 +614,37 @@ int main() {
     // Write an action using std::cout. DON'T FORGET THE "<< std::endl"
     // To debug: cerr << "Debug messages..." << std::endl;
     ocean[me.pos.y][me.pos.x] |= OCEAN_TILE_VISITED;
+    auto toto = utils::path::aStarShortestPath<std::pair<int, int>, double,
+                                               utils::ocean_pair_equals,
+                                               utils::ocean_pair_hash>(
+        std::make_pair(me.pos.x, me.pos.y), std::make_pair(7, 7),
+        [](const std::pair<int, int> &from) {
+          return sqrt(pow(from.first - 7, 2) + pow(from.second - 7, 2));
+        },
+        [&ocean](const std::pair<int, int> &pos) {
+          std::vector<std::pair<std::pair<int, int>, double>> out;
+          std::array<char, 4> move_dirs = {'N', 'S', 'E', 'W'};
+          ocean::Position cur_pos{.x = pos.first, .y = pos.second};
 
-    for (const auto &possible_path : enemy_prediction_path_list)
-      ocean[possible_path.back().y][possible_path.back().x] |=
-          OCEAN_TILE_TARGET;
+          for (const auto &move : move_dirs) {
+            auto new_pos = ocean::action::getNewPositionFromMove(move, cur_pos);
 
+            if (!(ocean::isPositionOutsideOcean(new_pos, ocean) ||
+                  (ocean[new_pos.y][new_pos.x] & OCEAN_TILE_ISLE))) {
+              out.emplace_back(std::make_pair(new_pos.x, new_pos.y), 1);
+            }
+          }
+          return out;
+        });
+
+    std::cerr << "Shortest path from " << me.pos << " to 7 7 is " << toto.size()
+              << " long" << std::endl;
+
+    for (const auto &pos : toto)
+      ocean[pos.second][pos.first] |= OCEAN_TILE_TARGET;
     std::cerr << ocean << std::endl;
-
-    for (const auto &possible_path : enemy_prediction_path_list)
-      ocean[possible_path.back().y][possible_path.back().x] &=
-          ~OCEAN_TILE_TARGET;
+    for (const auto &pos : toto)
+      ocean[pos.second][pos.first] &= ~OCEAN_TILE_TARGET;
 
     std::cout << "MOVE S TORPEDO" << std::endl;
   }
