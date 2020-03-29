@@ -29,22 +29,6 @@
 
 namespace utils {
 
-struct ocean_pair_hash {
-  template <typename T, typename U>
-  std::size_t operator()(const std::pair<T, U> &x) const {
-    std::size_t linear_coord = x.first + x.second * (15 * 15);
-    return std::hash<std::size_t>()(linear_coord);
-  };
-};
-
-struct ocean_pair_equals {
-  template <typename T, typename U>
-  bool operator()(const std::pair<T, U> &lhs,
-                  const std::pair<T, U> &rhs) const {
-    return (lhs.first == rhs.first) && (lhs.second == rhs.second);
-  };
-};
-
 namespace ascii {
 inline std::string horizontalBar(const std::size_t &length) noexcept {
   std::stringstream ss;
@@ -56,28 +40,19 @@ inline std::string horizontalBar(const std::size_t &length) noexcept {
 
 namespace path {
 
-/**
- * @brief      Function use to compute the shortest path with A* research Algo
- * @tparam     MapContainerType
- * @tparam     PositionCoordinatesType
- * @param      param
- * @return     return type
- */
-template <class PositionCoordinatesType, class HeuristicScore,
-          class PositionEqual = std::equal_to<PositionCoordinatesType>,
-          class Hash = std::hash<PositionCoordinatesType>>
+template <class PositionCoordinatesType,
+          class Hash = std::hash<PositionCoordinatesType>,
+          class PositionEqual = std::equal_to<PositionCoordinatesType>>
 std::deque<PositionCoordinatesType> aStarShortestPath(
     const PositionCoordinatesType &from_position,
     const PositionCoordinatesType &to_position,
-    std::function<HeuristicScore(const PositionCoordinatesType &)>
-        computeHeuristic,
-    std::function<
-        std::vector<std::pair<PositionCoordinatesType, HeuristicScore>>(
-            const PositionCoordinatesType &)>
+    std::function<double(const PositionCoordinatesType &)> computeHeuristic,
+    std::function<std::vector<std::pair<PositionCoordinatesType, double>>(
+        const PositionCoordinatesType &)>
         getNeighborWeightedPositions) {
   auto position_are_equals = PositionEqual();
 
-  typedef std::pair<PositionCoordinatesType, HeuristicScore> node_t;
+  typedef std::pair<PositionCoordinatesType, double> node_t;
 
   auto compare_f_score = [](const node_t &lhs, const node_t &rhs) {
     return lhs.second > rhs.second;
@@ -87,7 +62,7 @@ std::deque<PositionCoordinatesType> aStarShortestPath(
                               decltype(compare_f_score)>
       node_heap_t;
 
-  typedef std::unordered_map<PositionCoordinatesType, HeuristicScore, Hash,
+  typedef std::unordered_map<PositionCoordinatesType, double, Hash,
                              PositionEqual>
       score_map_t;
 
@@ -109,7 +84,7 @@ std::deque<PositionCoordinatesType> aStarShortestPath(
 
   while (!node_heap.empty()) {
     PositionCoordinatesType current_position;
-    HeuristicScore current_f_score;
+    double current_f_score;
 
     std::tie(current_position, current_f_score) = node_heap.top();
     node_heap.pop();
@@ -132,21 +107,114 @@ std::deque<PositionCoordinatesType> aStarShortestPath(
       for (const auto &neighbour_info :
            getNeighborWeightedPositions(current_position)) {
         PositionCoordinatesType neighbour_position;
-        HeuristicScore neighbour_distance;
+        double neighbour_distance;
 
         std::tie(neighbour_position, neighbour_distance) = neighbour_info;
 
         // Compute the possible new score from this node to the neighbor
-        HeuristicScore new_g_score =
-            g_score_map[current_position] + neighbour_distance;
+        double new_g_score = g_score_map[current_position] + neighbour_distance;
 
         auto neighbour_g_score_it = g_score_map.find(neighbour_position);
 
         // Get the neighbour g_score
         if (neighbour_g_score_it == g_score_map.end())
           std::tie(neighbour_g_score_it, std::ignore) = g_score_map.insert(
-              {neighbour_position,
-               std::numeric_limits<HeuristicScore>::infinity()});
+              {neighbour_position, std::numeric_limits<double>::infinity()});
+
+        if (new_g_score < neighbour_g_score_it->second) {
+          // Better g_score than neighbour
+          came_from[neighbour_position] = current_position;
+          g_score_map[neighbour_position] = new_g_score;
+
+          if (visited_position.find(neighbour_position) ==
+              visited_position.end()) {
+            node_heap.emplace(
+                neighbour_position,
+                new_g_score + computeHeuristic(neighbour_position));
+          }
+        }
+      }
+    }
+  }
+
+  return output_path;
+}
+
+template <class PositionCoordinatesType,
+          class Hash = std::hash<PositionCoordinatesType>,
+          class PositionEqual = std::equal_to<PositionCoordinatesType>>
+std::deque<PositionCoordinatesType> aStarShortestPath(
+    const PositionCoordinatesType &from_position,
+    const PositionCoordinatesType &to_position,
+    std::function<double(const PositionCoordinatesType &)> computeHeuristic,
+    std::function<
+        std::vector<PositionCoordinatesType>(const PositionCoordinatesType &)>
+        getNeighborPositions) {
+  auto position_are_equals = PositionEqual();
+
+  typedef std::pair<PositionCoordinatesType, double> node_t;
+
+  auto compare_f_score = [](const node_t &lhs, const node_t &rhs) {
+    return lhs.second > rhs.second;
+  };
+
+  typedef std::priority_queue<node_t, std::vector<node_t>,
+                              decltype(compare_f_score)>
+      node_heap_t;
+
+  typedef std::unordered_map<PositionCoordinatesType, double, Hash,
+                             PositionEqual>
+      score_map_t;
+
+  typedef std::unordered_map<PositionCoordinatesType, PositionCoordinatesType,
+                             Hash, PositionEqual>
+      path_map_t;
+
+  typedef std::unordered_set<PositionCoordinatesType, Hash, PositionEqual>
+      visited_pos_set_t;
+
+  std::deque<PositionCoordinatesType> output_path;
+  node_heap_t node_heap(compare_f_score);
+  visited_pos_set_t visited_position(0);
+  score_map_t g_score_map;
+  path_map_t came_from;
+
+  node_heap.emplace(from_position, computeHeuristic(from_position));
+  g_score_map.emplace(from_position, 0);
+
+  while (!node_heap.empty()) {
+    PositionCoordinatesType current_position;
+    double current_f_score;
+
+    std::tie(current_position, current_f_score) = node_heap.top();
+    node_heap.pop();
+
+    visited_position.insert(current_position);
+
+    if (position_are_equals(current_position, to_position)) {
+      // Found -> reconstruct path
+      output_path.push_back(current_position);
+      auto pos_it = came_from.find(current_position);
+      while (pos_it != came_from.end()) {
+        output_path.push_back(pos_it->second);
+        pos_it = came_from.find(pos_it->second);
+      }
+
+      break;
+
+    } else {
+      // explore
+      for (const auto &neighbour_position :
+           getNeighborPositions(current_position)) {
+        // Compute the possible new score from this node to the neighbor
+        double new_g_score = g_score_map[current_position] + 1;
+
+        auto neighbour_g_score_it = g_score_map.find(neighbour_position);
+
+        // Get the neighbour g_score
+        if (neighbour_g_score_it == g_score_map.end())
+          std::tie(neighbour_g_score_it, std::ignore) = g_score_map.insert(
+              {neighbour_position, std::numeric_limits<double>::infinity()});
 
         if (new_g_score < neighbour_g_score_it->second) {
           // Better g_score than neighbour
@@ -207,6 +275,28 @@ typedef std::uint32_t sector_t;
 
 struct Position {
   int x, y;
+
+  bool operator==(const Position &other) const {
+    return (x == other.x) && (y == other.y);
+  }
+
+  char go_to(const Position &target) const {
+    if (x == target.x) {
+      if (y + 1 == target.y)
+        return 'S';
+      else if (y - 1 == target.y)
+        return 'N';
+      else
+        return 'S';  // <-- IMPOSSIBLE
+    } else {
+      if (x + 1 == target.x)
+        return 'E';
+      else if (x - 1 == target.x)
+        return 'W';
+      else
+        return 'W';  // <-- IMPOSSIBLE
+    }
+  };
 };
 
 typedef std::vector<Position> path_t;
@@ -272,14 +362,6 @@ sector_t surfaceStr(std::stringstream &surface_sstream) {
 };
 }  // namespace parse
 
-typedef std::tuple<std::optional<move_t>,    // Move
-                   std::optional<Position>,  // Torpedo
-                   std::optional<sector_t>   // Torpedo
-                   >
-    action_t;
-
-namespace parse {}  // namespace parse
-
 }  // namespace action
 
 }  // namespace ocean
@@ -321,6 +403,16 @@ std::ostream &operator<<(std::ostream &output, const std::pair<int, int> &pos) {
 //   return output;
 // };
 
+namespace std {
+template <>
+struct hash<ocean::Position> {
+  std::size_t operator()(const ocean::Position &pos) const {
+    std::size_t linear_coord = pos.x + pos.y * (15);
+    return std::hash<std::size_t>()(linear_coord);
+  };
+};
+}  // namespace std
+
 ///////////////////////////////////////////////////////////////////////////////
 //                                 FUNCTIONS                                 //
 ///////////////////////////////////////////////////////////////////////////////
@@ -332,6 +424,17 @@ namespace ocean {
 void removeMask(map_t &map, const cell_t &mask) {
   for (auto &line : map)
     for (auto &cell : line) cell &= ~mask;
+};
+
+constexpr double computeL1Distance(const Position &position_1,
+                                   const Position &position_2) {
+  return abs((position_1.x - position_2.x) + (position_1.y - position_2.y));
+};
+
+constexpr double computeL2Distance(const Position &position_1,
+                                   const Position &position_2) {
+  return sqrt(pow((position_1.x - position_2.x), 2) +
+              pow((position_1.y - position_2.y), 2));
 };
 
 constexpr bool isXInsideSector(const int &x, const sector_t &sector) {
@@ -398,6 +501,29 @@ Position getNewPositionFromMove(const char &move, const Position &position) {
       break;
   };
   return new_pos;
+};
+
+std::vector<ocean::Position> validNextPositionListAround(
+    const Position &position, const map_t &ocean, const cell_t &invalid_cell) {
+  std::vector<ocean::Position> out;
+  out.reserve(4);
+
+  std::array<char, 4> move_dirs = {'N', 'S', 'E', 'W'};
+  for (const auto &move : move_dirs) {
+    auto new_pos = ocean::action::getNewPositionFromMove(move, position);
+    if (!ocean::isPositionOutsideOcean(new_pos, ocean) &&
+        (ocean[new_pos.y][new_pos.x] & invalid_cell) == 0) {
+      out.push_back(new_pos);
+    }
+  }
+
+  out.shrink_to_fit();
+  return out;
+};
+
+std::vector<ocean::Position> validNextPositionListAround(
+    const Position &position, const map_t &ocean) {
+  return validNextPositionListAround(position, ocean, OCEAN_TILE_ISLE);
 };
 
 void updatePositionPredictionFromMove(path_list_t &path_prediction_list,
@@ -555,6 +681,8 @@ int main() {
   ocean::map_t ocean;
   ocean::Submarine me, enemy;
   ocean::path_list_t my_prediction_path_list, enemy_prediction_path_list;
+  std::deque<ocean::Position> current_path;
+  ocean::Position target{.x = 7, .y = 7};
 
   std::tie(ocean, enemy_prediction_path_list, my_id) = initialize();
 
@@ -594,6 +722,9 @@ int main() {
 
   // game loop
   while (1) {
+
+
+
     std::cin >> me.pos.x >> me.pos.y >> me.hp >> enemy.hp >> me.torpedo_cd >>
         me.sonar_cd >> me.silence_cd >> me.mine_cd;
     std::cin.ignore();
@@ -609,43 +740,28 @@ int main() {
       ocean::action::updatePositionPrediction(enemy_prediction_path_list, ocean,
                                               enemy_orders);
 
-    // FIXME: THIS IS TMP, JUST FOR TESTS
-
-    // Write an action using std::cout. DON'T FORGET THE "<< std::endl"
-    // To debug: cerr << "Debug messages..." << std::endl;
     ocean[me.pos.y][me.pos.x] |= OCEAN_TILE_VISITED;
-    auto toto = utils::path::aStarShortestPath<std::pair<int, int>, double,
-                                               utils::ocean_pair_equals,
-                                               utils::ocean_pair_hash>(
-        std::make_pair(me.pos.x, me.pos.y), std::make_pair(7, 7),
-        [](const std::pair<int, int> &from) {
-          return sqrt(pow(from.first - 7, 2) + pow(from.second - 7, 2));
-        },
-        [&ocean](const std::pair<int, int> &pos) {
-          std::vector<std::pair<std::pair<int, int>, double>> out;
-          std::array<char, 4> move_dirs = {'N', 'S', 'E', 'W'};
-          ocean::Position cur_pos{.x = pos.first, .y = pos.second};
 
-          for (const auto &move : move_dirs) {
-            auto new_pos = ocean::action::getNewPositionFromMove(move, cur_pos);
+    if (current_path.empty()) {
+      std::cerr << "Compute new path" << std::endl;
+      // We have no cap !
+      current_path = std::move(utils::path::aStarShortestPath<ocean::Position>(
+          me.pos, target,
+          std::bind(ocean::computeL1Distance, std::placeholders::_1, target),
+          std::bind<std::vector<ocean::Position>(const ocean::Position &,
+                                                 const ocean::map_t &,
+                                                 const ocean::cell_t &)>(
+              ocean::action::validNextPositionListAround, std::placeholders::_1,
+              ocean, (OCEAN_TILE_ISLE | OCEAN_TILE_VISITED))));
+      current_path.pop_back();
+      std::cerr << "New path size: " << current_path.size() << std::endl;
+    }
 
-            if (!(ocean::isPositionOutsideOcean(new_pos, ocean) ||
-                  (ocean[new_pos.y][new_pos.x] & OCEAN_TILE_ISLE))) {
-              out.emplace_back(std::make_pair(new_pos.x, new_pos.y), 1);
-            }
-          }
-          return out;
-        });
-
-    std::cerr << "Shortest path from " << me.pos << " to 7 7 is " << toto.size()
-              << " long" << std::endl;
-
-    for (const auto &pos : toto)
-      ocean[pos.second][pos.first] |= OCEAN_TILE_TARGET;
     std::cerr << ocean << std::endl;
-    for (const auto &pos : toto)
-      ocean[pos.second][pos.first] &= ~OCEAN_TILE_TARGET;
-
-    std::cout << "MOVE S TORPEDO" << std::endl;
+    std::cerr << "Me: " << me.pos << std::endl;
+    std::cerr << "Next: " << current_path.back() << std::endl;
+    std::cout << "MOVE " << me.pos.go_to(current_path.back()) << " TORPEDO"
+              << std::endl;
+    current_path.pop_back();
   }
 }
